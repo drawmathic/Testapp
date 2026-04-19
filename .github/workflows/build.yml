@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set Up Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4 # Updated to v4 to remove warnings
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -26,6 +26,11 @@ jobs:
         with:
           flutter-version: '3.19.0'
           channel: 'stable'
+
+      # THIS IS THE NEW STEP THAT FIXES YOUR ERROR
+      # It automatically generates the missing 'android' folder and Gradle files
+      - name: Generate Android Scaffolding
+        run: flutter create --platforms android .
 
       - name: Install Dependencies
         run: flutter pub get
