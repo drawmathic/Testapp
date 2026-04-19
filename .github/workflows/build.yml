@@ -28,7 +28,7 @@ jobs:
           channel: 'stable'
 
       # THIS IS THE NEW STEP THAT FIXES YOUR ERROR
-      # It automatically generates the missing 'android' folder and Gradle files
+      # It automatically generates the missing 'android' hi folder and Gradle files
       - name: Generate Android Scaffolding
         run: flutter create --platforms android .
 
