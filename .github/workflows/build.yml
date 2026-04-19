@@ -1,6 +1,10 @@
-name: Build APK Manually
+name: Build APK
 
 on:
+  push:
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -20,7 +24,7 @@ jobs:
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0' # Adjust if needed, or use 'any'
+          flutter-version: '3.19.0'
           channel: 'stable'
 
       - name: Install Dependencies
