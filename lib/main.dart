@@ -126,7 +126,9 @@ class DrawStroke {
 
   factory DrawStroke.fromJson(Map<String, dynamic> json) => DrawStroke(
         tool: DrawTool.values[json['tool']],
-        points: (json['points'] as List).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),
+        points: (json['points'] as List)
+            .map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
+            .toList(),
         width: (json['width'] as num).toDouble(),
       );
 }
@@ -606,10 +608,8 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
         return ScratchpadOverlay(
           initialData: _activeTest.scratchpadJson,
           onSaveAndClose: (jsonResult) {
-            setState(() {
-              _activeTest.scratchpadJson = jsonResult;
-            });
-            _saveProgressOnExit(); // Save to disk
+            setState(() => _activeTest.scratchpadJson = jsonResult);
+            _saveProgressOnExit();
           },
         );
       },
@@ -617,21 +617,23 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   }
 
   Widget _buildSteampunkTeX(String text, {bool isSelected = false, bool isOption = false}) {
-    String color = isSelected ? '#EADDCD' : '#2B1C10';
-    String weight = isOption ? 'normal' : 'bold';
-    
-    // CRITICAL FIX: Sanitize HTML breaks like < and >
-    String safeText = text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-    
+    final color = isSelected ? '#EADDCD' : '#2B1C10';
+    final weight = isOption ? 'normal' : 'bold';
+    final fontSize = isOption ? 16 : 20;
+
     return TeXView(
-      child: TeXViewMarkdown(
-        safeText, 
-        style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'}; padding: 4px;')
+      child: TeXViewDocument(
+        '''<div style="color: $color; font-family: Georgia, serif; font-weight: $weight; font-size: ${fontSize}px; line-height: 1.6;">
+             $text
+           </div>''',
       ),
       style: const TeXViewStyle(
+        backgroundColor: 'transparent',
+        padding: TeXViewPadding.all(4),
         margin: TeXViewMargin.all(0),
-        padding: TeXViewPadding.all(0),
-        backgroundColor: Colors.transparent,
+      ),
+      loadingWidget: const Center(
+        child: CircularProgressIndicator(color: steamCopper),
       ),
     );
   }
@@ -744,7 +746,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                                         alignment: Alignment.center,
                                         decoration: BoxDecoration(
                                           color: isSelected ? steamBrass : Colors.transparent,
-                                          border: Border.all(color: isSelected ? steamDarkInk : steamDarkInk, width: 2),
+                                          border: Border.all(color: steamDarkInk, width: 2),
                                         ),
                                         child: Text(
                                           String.fromCharCode(65 + optIdx),
@@ -752,7 +754,13 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                                         ),
                                       ),
                                       const SizedBox(width: 16),
-                                      Expanded(child: _buildSteampunkTeX(q.options[optIdx], isSelected: isSelected, isOption: true)),
+                                      Expanded(
+                                        child: _buildSteampunkTeX(
+                                          q.options[optIdx],
+                                          isSelected: isSelected,
+                                          isOption: true,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -798,9 +806,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                 shadowColor: q.isMarkedForReview ? steamBrass : null,
                 elevation: q.isMarkedForReview ? 10 : 0,
               ),
-              onPressed: () {
-                setState(() => q.isMarkedForReview = !q.isMarkedForReview);
-              },
+              onPressed: () => setState(() => q.isMarkedForReview = !q.isMarkedForReview),
               icon: const Icon(Icons.flag),
               label: Text(q.isMarkedForReview ? 'FLAGGED' : 'FLAG'),
             ),
@@ -916,14 +922,13 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   int _activeLayerIndex = 0;
   DrawTool _currentTool = DrawTool.pen;
   double _currentWidth = 3.0;
-  bool _isDrawingMode = true; 
+  bool _isDrawingMode = true;
 
   final TransformationController _transformCtrl = TransformationController();
-
   List<List<DrawStroke>> _undoStack = [];
   List<List<DrawStroke>> _redoStack = [];
   List<Offset> _currentPath = [];
-  int? _activePointerId; // CRITICAL FIX: Tracks specific finger to prevent multi-touch connected lines
+  int? _activePointerId;
 
   @override
   void initState() {
@@ -933,12 +938,9 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
         final decoded = jsonDecode(widget.initialData!);
         _layers = (decoded as List).map((l) => DrawLayer.fromJson(l)).toList();
         if (_layers.isEmpty) _layers = [DrawLayer(name: 'Base Layer')];
-      } catch (e) {
-        // Fallback
-      }
+      } catch (e) {}
     }
-    
-    // CRITICAL FIX: Center the Massive Canvas automatically on startup
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final size = MediaQuery.of(context).size;
       _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
@@ -954,28 +956,24 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   void _undo() {
     if (_undoStack.isNotEmpty) {
       _redoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
-      setState(() {
-        _layers[_activeLayerIndex].strokes = _undoStack.removeLast();
-      });
+      setState(() => _layers[_activeLayerIndex].strokes = _undoStack.removeLast());
     }
   }
 
   void _redo() {
     if (_redoStack.isNotEmpty) {
       _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
-      setState(() {
-        _layers[_activeLayerIndex].strokes = _redoStack.removeLast();
-      });
+      setState(() => _layers[_activeLayerIndex].strokes = _redoStack.removeLast());
     }
   }
 
   void _onPointerDown(PointerDownEvent event) {
     if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible) return;
-    if (_activePointerId != null) return; // CRITICAL FIX: Ignore secondary fingers
-    
+    if (_activePointerId != null) return;
+
     _activePointerId = event.pointer;
     _saveSnapshotForUndo();
-    
+
     setState(() {
       _currentPath = [event.localPosition];
       _layers[_activeLayerIndex].strokes.add(DrawStroke(tool: _currentTool, points: _currentPath, width: _currentWidth));
@@ -984,17 +982,15 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
 
   void _onPointerMove(PointerMoveEvent event) {
     if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
-    if (event.pointer != _activePointerId) return; // CRITICAL FIX: Ignore secondary fingers
-    
+    if (event.pointer != _activePointerId) return;
+
     setState(() {
       if (_currentTool == DrawTool.pen || _currentTool == DrawTool.eraser) {
         _currentPath.add(event.localPosition);
+      } else if (_currentPath.length > 1) {
+        _currentPath[1] = event.localPosition;
       } else {
-        if (_currentPath.length > 1) {
-          _currentPath[1] = event.localPosition;
-        } else {
-          _currentPath.add(event.localPosition);
-        }
+        _currentPath.add(event.localPosition);
       }
     });
   }
@@ -1005,7 +1001,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
       _currentPath = [];
     }
   }
-  
+
   void _onPointerCancel(PointerCancelEvent event) {
     if (event.pointer == _activePointerId) {
       _activePointerId = null;
@@ -1024,9 +1020,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
 
   void _clearActiveLayer() {
     _saveSnapshotForUndo();
-    setState(() {
-      _layers[_activeLayerIndex].strokes.clear();
-    });
+    setState(() => _layers[_activeLayerIndex].strokes.clear());
   }
 
   void _closeAndSave() {
@@ -1051,8 +1045,8 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
           IconButton(
             icon: const Icon(Icons.zoom_out_map),
             onPressed: () {
-               final size = MediaQuery.of(context).size;
-               _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
+              final size = MediaQuery.of(context).size;
+              _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
             },
             tooltip: 'Reset View',
           ),
@@ -1064,7 +1058,6 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
       endDrawer: _buildLayerManager(),
       body: Column(
         children: [
-          // Toolbar
           Container(
             color: steamDarkInk,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1105,7 +1098,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                   panEnabled: !_isDrawingMode,
                   scaleEnabled: !_isDrawingMode,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
-                  constrained: false, // CRITICAL FIX: Ensures 3000x3000 actually exists in virtual space and isn't shrunken
+                  constrained: false,
                   minScale: 0.1,
                   maxScale: 10.0,
                   child: Listener(
@@ -1113,13 +1106,11 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                     onPointerDown: _onPointerDown,
                     onPointerMove: _onPointerMove,
                     onPointerUp: _onPointerUp,
-                    onPointerCancel: _onPointerCancel, 
-                    child: SizedBox(
+                    onPointerCancel: _onPointerCancel,
+                    child: const SizedBox(
                       width: 3000,
                       height: 3000,
-                      child: CustomPaint(
-                        painter: ScratchpadPainter(layers: _layers),
-                      ),
+                      child: CustomPaint(painter: ScratchpadPainter(layers: [])),
                     ),
                   ),
                 ),
@@ -1161,7 +1152,10 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                 final layer = _layers[i];
                 bool isActive = i == _activeLayerIndex;
                 return Container(
-                  decoration: BoxDecoration(border: Border.all(color: isActive ? steamBrass : Colors.transparent, width: 2), color: isActive ? steamDarkInk.withOpacity(0.1) : null),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isActive ? steamBrass : Colors.transparent, width: 2),
+                    color: isActive ? steamDarkInk.withOpacity(0.1) : null,
+                  ),
                   child: ListTile(
                     leading: IconButton(
                       icon: Icon(layer.isVisible ? Icons.visibility : Icons.visibility_off, color: steamDarkInk),
@@ -1171,12 +1165,10 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                     trailing: _layers.length > 1
                         ? IconButton(
                             icon: const Icon(Icons.delete, color: steamBlood),
-                            onPressed: () {
-                              setState(() {
-                                _layers.removeAt(i);
-                                if (_activeLayerIndex >= _layers.length) _activeLayerIndex = _layers.length - 1;
-                              });
-                            },
+                            onPressed: () => setState(() {
+                              _layers.removeAt(i);
+                              if (_activeLayerIndex >= _layers.length) _activeLayerIndex = _layers.length - 1;
+                            }),
                           )
                         : null,
                     onTap: () {
@@ -1230,11 +1222,8 @@ class ScratchpadPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
-
     for (var layer in layers) {
       if (!layer.isVisible) continue;
-
       for (var stroke in layer.strokes) {
         if (stroke.points.isEmpty) continue;
 
@@ -1244,15 +1233,12 @@ class ScratchpadPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round
           ..style = PaintingStyle.stroke;
 
-        if (stroke.tool == DrawTool.eraser) {
-          paint.blendMode = BlendMode.clear;
-        }
+        if (stroke.tool == DrawTool.eraser) paint.blendMode = BlendMode.clear;
 
         if (stroke.points.length == 1) {
           canvas.drawCircle(stroke.points.first, stroke.width / 2, paint..style = PaintingStyle.fill);
         } else if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
-          final path = Path();
-          path.moveTo(stroke.points.first.dx, stroke.points.first.dy);
+          final path = Path()..moveTo(stroke.points.first.dx, stroke.points.first.dy);
           for (int i = 1; i < stroke.points.length; i++) {
             path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
           }
@@ -1260,7 +1246,6 @@ class ScratchpadPainter extends CustomPainter {
         } else if (stroke.points.length >= 2) {
           final start = stroke.points.first;
           final end = stroke.points.last;
-
           if (stroke.tool == DrawTool.line) {
             canvas.drawLine(start, end, paint);
           } else if (stroke.tool == DrawTool.square) {
@@ -1273,19 +1258,29 @@ class ScratchpadPainter extends CustomPainter {
         }
       }
     }
-    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-
 // --- RESULT SCREEN ---
 
 class TestResultScreen extends StatelessWidget {
   final TestModel test;
   const TestResultScreen({super.key, required this.test});
+
+  Widget _buildSteampunkTeX(String text) {
+    return TeXView(
+      child: TeXViewDocument(
+        '''<div style="color: #2B1C10; font-family: Georgia, serif; font-weight: bold; font-size: 18px; line-height: 1.6;">
+             $text
+           </div>''',
+      ),
+      style: const TeXViewStyle(backgroundColor: 'transparent'),
+      loadingWidget: const CircularProgressIndicator(color: steamCopper),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1332,9 +1327,6 @@ class TestResultScreen extends StatelessWidget {
             IconData icon = isAttempted ? (isCorrect ? Icons.check_circle : Icons.cancel) : Icons.remove_circle;
             Color iconColor = isAttempted ? (isCorrect ? steamGreen : steamBlood) : steamDarkInk;
 
-            // Sanitize Result Screen strings too
-            String safeQText = q.text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(border: Border.all(color: steamDarkInk, width: 2), color: tileColor),
@@ -1350,9 +1342,7 @@ class TestResultScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        TeXView(
-                          child: TeXViewMarkdown(safeQText, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;')),
-                        ),
+                        _buildSteampunkTeX(q.text),
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(12),
