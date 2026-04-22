@@ -42,12 +42,12 @@ final steamTheme = ThemeData(
     error: steamBlood,
   ),
   useMaterial3: true,
-  fontFamily: 'Georgia', // Serif font fits steampunk well
-  cardTheme: CardTheme(
+  fontFamily: 'Georgia',
+  cardTheme: const CardTheme(
     color: steamParchment,
     elevation: 0,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-    margin: const EdgeInsets.all(8),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    margin: EdgeInsets.all(8),
   ),
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
@@ -78,7 +78,7 @@ final steamTheme = ThemeData(
       side: BorderSide(color: steamCopper, width: 2),
     ),
   ),
-  appBarTheme: AppBarTheme(
+  appBarTheme: const AppBarTheme(
     backgroundColor: steamDarkInk,
     foregroundColor: steamBrass,
     elevation: 10,
@@ -205,7 +205,7 @@ class TestModel {
   int allocatedTimeMs;
   int remainingTimeMs;
   DateTime? dateCompleted;
-  String? scratchpadJson; // PERSISTENT MEMORY
+  String? scratchpadJson;
 
   TestModel({
     required this.id,
@@ -617,11 +617,14 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   }
 
   Widget _buildSteampunkTeX(String text, {bool isSelected = false, bool isOption = false}) {
-    // Injecting standard TeX styling
     String color = isSelected ? '#EADDCD' : '#2B1C10';
     String weight = isOption ? 'normal' : 'bold';
     return TeXView(
-      child: TeXViewDocument(text, style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'};')),
+      renderingEngine: const TeXViewRenderingEngine.katex(),
+      child: TeXViewDocument(
+        text, 
+        style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'}; padding: 4px;')
+      ),
       style: const TeXViewStyle(
         margin: TeXViewMargin.all(0),
         padding: TeXViewPadding.all(0),
@@ -670,6 +673,11 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                 ),
               ),
             ),
+            IconButton(
+              icon: const Icon(Icons.draw, color: steamBrass),
+              tooltip: 'Scratchpad',
+              onPressed: _openScratchpad,
+            ),
             Builder(
               builder: (ctx) => IconButton(
                 icon: const Icon(Icons.account_tree),
@@ -677,14 +685,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
               ),
             ),
           ],
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: _openScratchpad,
-          backgroundColor: steamDarkInk,
-          foregroundColor: steamBrass,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: steamCopper, width: 2)),
-          elevation: 10,
-          child: const Icon(Icons.draw),
         ),
         endDrawer: _buildQuestionExplorer(),
         body: Container(
@@ -773,7 +773,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   Widget _buildBottomNavigation() {
     final q = _activeTest.questions[_currentIndex];
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
         color: steamDarkInk,
         border: Border(top: BorderSide(color: steamBrass, width: 3)),
@@ -913,11 +913,12 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   int _activeLayerIndex = 0;
   DrawTool _currentTool = DrawTool.pen;
   double _currentWidth = 3.0;
+  bool _isDrawingMode = true; // Toggle between Draw and Move/Zoom
 
-  // Undo/Redo tracking per layer: a stack of stroke counts
+  final TransformationController _transformCtrl = TransformationController();
+
   List<List<DrawStroke>> _undoStack = [];
   List<List<DrawStroke>> _redoStack = [];
-
   List<Offset> _currentPath = [];
 
   @override
@@ -932,12 +933,13 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
         // Fallback to empty if corrupt
       }
     }
+    // Center the 3000x3000 infinite canvas on launch
+    _transformCtrl.value = Matrix4.identity()..translate(-500.0, -500.0);
   }
 
   void _saveSnapshotForUndo() {
     _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
     _redoStack.clear();
-    // Cap memory
     if (_undoStack.length > 20) _undoStack.removeAt(0);
   }
 
@@ -959,32 +961,31 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
     }
   }
 
-  void _handlePanStart(DragStartDetails details) {
-    if (!_layers[_activeLayerIndex].isVisible) return;
+  void _onPointerDown(PointerDownEvent event) {
+    if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible) return;
     _saveSnapshotForUndo();
     setState(() {
-      _currentPath = [details.localPosition];
+      _currentPath = [event.localPosition];
       _layers[_activeLayerIndex].strokes.add(DrawStroke(tool: _currentTool, points: _currentPath, width: _currentWidth));
     });
   }
 
-  void _handlePanUpdate(DragUpdateDetails details) {
-    if (!_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
     setState(() {
       if (_currentTool == DrawTool.pen || _currentTool == DrawTool.eraser) {
-        _currentPath.add(details.localPosition);
+        _currentPath.add(event.localPosition);
       } else {
-        // For shapes, only keep start and current pos
         if (_currentPath.length > 1) {
-          _currentPath[1] = details.localPosition;
+          _currentPath[1] = event.localPosition;
         } else {
-          _currentPath.add(details.localPosition);
+          _currentPath.add(event.localPosition);
         }
       }
     });
   }
 
-  void _handlePanEnd(DragEndDetails details) {
+  void _onPointerUp(PointerUpEvent event) {
     _currentPath = [];
   }
 
@@ -1018,6 +1019,16 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
         leading: IconButton(icon: const Icon(Icons.close), onPressed: _closeAndSave),
         title: const Text('DIGITAL SCRATCHPAD', style: TextStyle(letterSpacing: 2)),
         actions: [
+          IconButton(
+            icon: Icon(_isDrawingMode ? Icons.pan_tool : Icons.edit),
+            onPressed: () => setState(() => _isDrawingMode = !_isDrawingMode),
+            tooltip: _isDrawingMode ? 'Switch to Move/Zoom' : 'Switch to Draw',
+          ),
+          IconButton(
+            icon: const Icon(Icons.zoom_out_map),
+            onPressed: () => _transformCtrl.value = Matrix4.identity()..translate(-500.0, -500.0),
+            tooltip: 'Reset View',
+          ),
           IconButton(icon: const Icon(Icons.undo), onPressed: _undoStack.isNotEmpty ? _undo : null),
           IconButton(icon: const Icon(Icons.redo), onPressed: _redoStack.isNotEmpty ? _redo : null),
           Builder(builder: (ctx) => IconButton(icon: const Icon(Icons.layers), onPressed: () => Scaffold.of(ctx).openEndDrawer())),
@@ -1032,11 +1043,11 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
               children: [
-                _ToolButton(icon: Icons.edit, tool: DrawTool.pen, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.pen)),
-                _ToolButton(icon: Icons.horizontal_rule, tool: DrawTool.line, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.line)),
-                _ToolButton(icon: Icons.crop_square, tool: DrawTool.square, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.square)),
-                _ToolButton(icon: Icons.circle_outlined, tool: DrawTool.circle, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.circle)),
-                _ToolButton(icon: Icons.layers_clear, tool: DrawTool.eraser, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.eraser)),
+                _ToolButton(icon: Icons.edit, tool: DrawTool.pen, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.pen; _isDrawingMode = true; })),
+                _ToolButton(icon: Icons.horizontal_rule, tool: DrawTool.line, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.line; _isDrawingMode = true; })),
+                _ToolButton(icon: Icons.crop_square, tool: DrawTool.square, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.square; _isDrawingMode = true; })),
+                _ToolButton(icon: Icons.circle_outlined, tool: DrawTool.circle, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.circle; _isDrawingMode = true; })),
+                _ToolButton(icon: Icons.layers_clear, tool: DrawTool.eraser, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.eraser; _isDrawingMode = true; })),
                 const Spacer(),
                 const Icon(Icons.line_weight, color: steamBrass, size: 16),
                 Expanded(
@@ -1057,18 +1068,31 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
             child: Container(
               margin: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.5), // Slightly transparent to let parchment bleed through
+                color: Colors.white.withOpacity(0.5),
                 border: Border.all(color: steamCopper, width: 4),
                 boxShadow: [steamShadow],
               ),
               child: ClipRect(
-                child: GestureDetector(
-                  onPanStart: _handlePanStart,
-                  onPanUpdate: _handlePanUpdate,
-                  onPanEnd: _handlePanEnd,
-                  child: CustomPaint(
-                    painter: ScratchpadPainter(layers: _layers),
-                    size: Size.infinite,
+                child: InteractiveViewer(
+                  transformationController: _transformCtrl,
+                  panEnabled: !_isDrawingMode,
+                  scaleEnabled: !_isDrawingMode,
+                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  minScale: 0.1,
+                  maxScale: 10.0,
+                  child: Listener(
+                    behavior: HitTestBehavior.opaque,
+                    onPointerDown: _onPointerDown,
+                    onPointerMove: _onPointerMove,
+                    onPointerUp: _onPointerUp,
+                    onPointerCancel: _onPointerUp,
+                    child: SizedBox(
+                      width: 3000,
+                      height: 3000,
+                      child: CustomPaint(
+                        painter: ScratchpadPainter(layers: _layers),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1196,7 +1220,10 @@ class ScratchpadPainter extends CustomPainter {
           paint.blendMode = BlendMode.clear;
         }
 
-        if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
+        // Fix for "Multi-tap line bug": perfectly render a single tap dot.
+        if (stroke.points.length == 1) {
+          canvas.drawCircle(stroke.points.first, stroke.width / 2, paint..style = PaintingStyle.fill);
+        } else if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
           final path = Path();
           path.moveTo(stroke.points.first.dx, stroke.points.first.dy);
           for (int i = 1; i < stroke.points.length; i++) {
@@ -1293,7 +1320,10 @@ class TestResultScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                         TeXView(child: TeXViewDocument(q.text, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;'))),
+                        TeXView(
+                          renderingEngine: const TeXViewRenderingEngine.katex(),
+                          child: TeXViewDocument(q.text, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;')),
+                        ),
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -1575,14 +1605,6 @@ class _ImportScreenState extends State<ImportScreen> {
               label: const Text('INJECT SEQUENCE', style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.bold)),
               style: FilledButton.styleFrom(padding: const EdgeInsets.all(20)),
             ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () {
-                context.read<AppState>().resetData();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ALL DATABANKS PURGED'), backgroundColor: steamBlood));
-              },
-              child: const Text('PURGE ALL DATABANKS', style: TextStyle(color: steamBlood, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            )
           ],
         ),
       ),
