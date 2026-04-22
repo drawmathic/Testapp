@@ -27,8 +27,7 @@ jobs:
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0' # Bumped to support Dart 3.4.0+
-          channel: 'stable'
+          channel: 'stable' # Dynamically pulls the latest stable version
 
       - name: Generate Android Scaffolding
         run: flutter create --platforms android .
