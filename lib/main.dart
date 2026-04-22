@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:collection/collection.dart';
+import 'package:flutter_tex/flutter_tex.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +17,82 @@ void main() async {
   );
 }
 
+// --- STEAMPUNK THEME CONSTANTS ---
+const Color steamParchment = Color(0xFFEADDCD);
+const Color steamDarkInk = Color(0xFF2B1C10);
+const Color steamCopper = Color(0xFFB87333);
+const Color steamBrass = Color(0xFFD4AF37);
+const Color steamBlood = Color(0xFF8B0000);
+const Color steamGreen = Color(0xFF2E4A2E);
+
+final steamShadow = BoxShadow(
+  color: steamCopper.withOpacity(0.5),
+  blurRadius: 12,
+  spreadRadius: 2,
+  offset: const Offset(0, 0),
+);
+
+final steamTheme = ThemeData(
+  scaffoldBackgroundColor: steamParchment,
+  colorScheme: const ColorScheme.light(
+    primary: steamCopper,
+    secondary: steamBrass,
+    surface: steamParchment,
+    onSurface: steamDarkInk,
+    error: steamBlood,
+  ),
+  useMaterial3: true,
+  fontFamily: 'Georgia', // Serif font fits steampunk well
+  cardTheme: CardTheme(
+    color: steamParchment,
+    elevation: 0,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    margin: const EdgeInsets.all(8),
+  ),
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      backgroundColor: steamDarkInk,
+      foregroundColor: steamBrass,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      elevation: 5,
+      shadowColor: steamCopper,
+    ),
+  ),
+  filledButtonTheme: FilledButtonThemeData(
+    style: FilledButton.styleFrom(
+      backgroundColor: steamCopper,
+      foregroundColor: steamDarkInk,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    ),
+  ),
+  textButtonTheme: TextButtonThemeData(
+    style: TextButton.styleFrom(
+      foregroundColor: steamDarkInk,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    ),
+  ),
+  dialogTheme: const DialogTheme(
+    backgroundColor: steamParchment,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.zero,
+      side: BorderSide(color: steamCopper, width: 2),
+    ),
+  ),
+  appBarTheme: AppBarTheme(
+    backgroundColor: steamDarkInk,
+    foregroundColor: steamBrass,
+    elevation: 10,
+    shadowColor: steamCopper,
+  ),
+  inputDecorationTheme: const InputDecorationTheme(
+    border: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: steamDarkInk)),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: steamDarkInk)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: steamCopper, width: 2)),
+    filled: true,
+    fillColor: steamParchment,
+  ),
+);
+
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
@@ -24,19 +100,55 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Exam Prep App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent, brightness: Brightness.light),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent, brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
-      themeMode: ThemeMode.system,
+      title: 'SteamPrep Engine',
+      theme: steamTheme,
       home: const DashboardNavigation(),
     );
   }
+}
+
+// --- SCRATCHPAD MODELS ---
+
+enum DrawTool { pen, line, circle, square, eraser }
+
+class DrawStroke {
+  final DrawTool tool;
+  final List<Offset> points;
+  final double width;
+
+  DrawStroke({required this.tool, required this.points, required this.width});
+
+  Map<String, dynamic> toJson() => {
+        'tool': tool.index,
+        'points': points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+        'width': width,
+      };
+
+  factory DrawStroke.fromJson(Map<String, dynamic> json) => DrawStroke(
+        tool: DrawTool.values[json['tool']],
+        points: (json['points'] as List).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),
+        width: (json['width'] as num).toDouble(),
+      );
+}
+
+class DrawLayer {
+  String name;
+  List<DrawStroke> strokes;
+  bool isVisible;
+
+  DrawLayer({required this.name, this.strokes = const [], this.isVisible = true});
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'strokes': strokes.map((s) => s.toJson()).toList(),
+        'isVisible': isVisible,
+      };
+
+  factory DrawLayer.fromJson(Map<String, dynamic> json) => DrawLayer(
+        name: json['name'],
+        strokes: (json['strokes'] as List).map((s) => DrawStroke.fromJson(s)).toList(),
+        isVisible: json['isVisible'],
+      );
 }
 
 // --- MODELS ---
@@ -90,9 +202,10 @@ class TestModel {
   int? score;
   bool isCompleted;
   int totalTimeTakenMs;
-  int allocatedTimeMs; // Default total time given for the test
-  int remainingTimeMs; // State for pause/resume
+  int allocatedTimeMs;
+  int remainingTimeMs;
   DateTime? dateCompleted;
+  String? scratchpadJson; // PERSISTENT MEMORY
 
   TestModel({
     required this.id,
@@ -103,9 +216,10 @@ class TestModel {
     this.score,
     this.isCompleted = false,
     this.totalTimeTakenMs = 0,
-    this.allocatedTimeMs = 3600000, // Default 60 mins
+    this.allocatedTimeMs = 3600000,
     int? remainingTimeMs,
     this.dateCompleted,
+    this.scratchpadJson,
   }) : remainingTimeMs = remainingTimeMs ?? allocatedTimeMs;
 
   Map<String, dynamic> toJson() => {
@@ -120,6 +234,7 @@ class TestModel {
         'allocatedTimeMs': allocatedTimeMs,
         'remainingTimeMs': remainingTimeMs,
         'dateCompleted': dateCompleted?.toIso8601String(),
+        'scratchpadJson': scratchpadJson,
       };
 
   factory TestModel.fromJson(Map<String, dynamic> json) => TestModel(
@@ -134,6 +249,7 @@ class TestModel {
         allocatedTimeMs: json['allocatedTimeMs'] ?? 3600000,
         remainingTimeMs: json['remainingTimeMs'],
         dateCompleted: json['dateCompleted'] != null ? DateTime.parse(json['dateCompleted']) : null,
+        scratchpadJson: json['scratchpadJson'],
       );
 }
 
@@ -145,7 +261,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadData() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('app_data');
+    final String? data = prefs.getString('app_data_steam');
     if (data != null) {
       final List decoded = jsonDecode(data);
       _tests = decoded.map((e) => TestModel.fromJson(e)).toList();
@@ -156,7 +272,7 @@ class AppState extends ChangeNotifier {
   Future<void> saveData() async {
     final prefs = await SharedPreferences.getInstance();
     final String encoded = jsonEncode(_tests.map((e) => e.toJson()).toList());
-    await prefs.setString('app_data', encoded);
+    await prefs.setString('app_data_steam', encoded);
   }
 
   void importJson(String jsonString) {
@@ -192,7 +308,7 @@ class AppState extends ChangeNotifier {
     if (idx != -1) {
       _tests[idx] = updatedTest;
       saveData();
-      notifyListeners(); // Update UI in Library to show "Resume"
+      notifyListeners();
     }
   }
 
@@ -228,10 +344,24 @@ class _DashboardNavigationState extends State<DashboardNavigation> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+        backgroundColor: steamDarkInk,
+        indicatorColor: steamCopper,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.library_books), label: 'Library'),
-          NavigationDestination(icon: Icon(Icons.analytics), label: 'Analytics'),
-          NavigationDestination(icon: Icon(Icons.data_object), label: 'Import JSON'),
+          NavigationDestination(
+            icon: Icon(Icons.library_books, color: steamBrass),
+            selectedIcon: Icon(Icons.library_books, color: steamDarkInk),
+            label: 'Archives',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.analytics, color: steamBrass),
+            selectedIcon: Icon(Icons.analytics, color: steamDarkInk),
+            label: 'Telemetry',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.data_object, color: steamBrass),
+            selectedIcon: Icon(Icons.data_object, color: steamDarkInk),
+            label: 'Inject Data',
+          ),
         ],
       ),
     );
@@ -249,47 +379,61 @@ class LibraryScreen extends StatelessWidget {
     final grouped = groupBy(tests, (TestModel t) => t.category);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Exam Library')),
+      appBar: AppBar(
+        title: const Text('Exam Archives', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
+      ),
       body: tests.isEmpty
-          ? const Center(child: Text('No tests found. Import JSON to begin.'))
+          ? Center(
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(border: Border.all(color: steamCopper, width: 2), boxShadow: [steamShadow], color: steamParchment),
+                child: const Text('ARCHIVES EMPTY.\nINJECT JSON TO COMMENCE.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            )
           : ListView(
+              padding: const EdgeInsets.all(8),
               children: grouped.entries.map((categoryEntry) {
                 final subGrouped = groupBy(categoryEntry.value, (TestModel t) => t.subcategory);
-                return ExpansionTile(
-                  title: Text(categoryEntry.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                  children: subGrouped.entries.map((subEntry) {
-                    return ExpansionTile(
-                      title: Text(subEntry.key),
-                      children: subEntry.value.map((test) {
-                        bool inProgress = !test.isCompleted && test.remainingTimeMs < test.allocatedTimeMs;
-                        
-                        return ListTile(
-                          leading: Icon(
-                            test.isCompleted ? Icons.check_circle : (inProgress ? Icons.timelapse : Icons.radio_button_unchecked),
-                            color: test.isCompleted ? Colors.green : (inProgress ? Colors.orange : Colors.grey),
-                          ),
-                          title: Text(test.title),
-                          subtitle: test.isCompleted
-                              ? Text('Score: ${test.score}/${test.questions.length}')
-                              : Text(inProgress ? 'In Progress - Resume' : 'Not Attempted'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.edit, size: 20),
-                            onPressed: () => _editTestCategory(context, test),
-                          ),
-                          onTap: () {
-                            if (!test.isCompleted) {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveTestScreen(test: test)));
-                            } else {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => TestResultScreen(test: test)));
-                            }
-                          },
-                          onLongPress: () {
-                            _confirmDelete(context, test.id);
-                          },
-                        );
-                      }).toList(),
-                    );
-                  }).toList(),
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(border: Border.all(color: steamDarkInk, width: 2), color: steamParchment),
+                  child: ExpansionTile(
+                    iconColor: steamCopper,
+                    collapsedIconColor: steamDarkInk,
+                    title: Text(categoryEntry.key.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: steamDarkInk)),
+                    children: subGrouped.entries.map((subEntry) {
+                      return ExpansionTile(
+                        title: Text(subEntry.key, style: const TextStyle(color: steamCopper, fontWeight: FontWeight.bold)),
+                        children: subEntry.value.map((test) {
+                          bool inProgress = !test.isCompleted && test.remainingTimeMs < test.allocatedTimeMs;
+
+                          return Container(
+                            decoration: const BoxDecoration(border: Border(top: BorderSide(color: steamDarkInk, width: 1))),
+                            child: ListTile(
+                              leading: Icon(
+                                test.isCompleted ? Icons.settings : (inProgress ? Icons.settings_applications : Icons.settings_outlined),
+                                color: test.isCompleted ? steamGreen : (inProgress ? steamCopper : steamDarkInk),
+                              ),
+                              title: Text(test.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: test.isCompleted ? Text('Efficiency: ${test.score}/${test.questions.length}') : Text(inProgress ? 'Suspended - Resume' : 'Uninitialized'),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.build, size: 20, color: steamDarkInk),
+                                onPressed: () => _editTestCategory(context, test),
+                              ),
+                              onTap: () {
+                                if (!test.isCompleted) {
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveTestScreen(test: test)));
+                                } else {
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => TestResultScreen(test: test)));
+                                }
+                              },
+                              onLongPress: () => _confirmDelete(context, test.id),
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    }).toList(),
+                  ),
                 );
               }).toList(),
             ),
@@ -300,17 +444,17 @@ class LibraryScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Test?'),
-        content: const Text('This will permanently delete this test and its statistics.'),
+        title: const Text('PURGE RECORD?'),
+        content: const Text('This action will permanently eradicate the selected data from the engine.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ABORT')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: steamBlood),
             onPressed: () {
               context.read<AppState>().deleteTest(testId);
               Navigator.pop(ctx);
             },
-            child: const Text('Delete'),
+            child: const Text('PURGE'),
           )
         ],
       ),
@@ -324,22 +468,23 @@ class LibraryScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Organize Test'),
+        title: const Text('Reconfigure Sectors'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: catCtrl, decoration: const InputDecoration(labelText: 'Category')),
-            TextField(controller: subCtrl, decoration: const InputDecoration(labelText: 'Subcategory')),
+            TextField(controller: catCtrl, decoration: const InputDecoration(labelText: 'Primary Sector')),
+            const SizedBox(height: 12),
+            TextField(controller: subCtrl, decoration: const InputDecoration(labelText: 'Sub-Sector')),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL')),
           FilledButton(
             onPressed: () {
               context.read<AppState>().updateTestCategory(test.id, catCtrl.text, subCtrl.text);
               Navigator.pop(ctx);
             },
-            child: const Text('Save'),
+            child: const Text('COMMIT'),
           )
         ],
       ),
@@ -367,11 +512,8 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    
-    // Deep copy to manipulate without accidentally finalizing until saved
     _activeTest = TestModel.fromJson(widget.test.toJson());
-    
-    // Mark first question as visited
+
     if (_activeTest.questions.isNotEmpty) {
       _activeTest.questions[0].visited = true;
     }
@@ -415,7 +557,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
 
   void _finishTest({bool autoSubmit = false}) {
     if (autoSubmit) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Time is up! Auto-submitting...'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('SYSTEM HALT. Auto-submitting...'), backgroundColor: steamBlood));
     }
 
     int score = 0;
@@ -438,18 +580,52 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Submit Test?'),
-        content: Text(unanswered > 0 ? 'You have $unanswered unanswered questions.\nAre you sure you want to submit?' : 'Ready to submit?'),
+        title: const Text('INITIATE SUBMISSION?'),
+        content: Text(unanswered > 0 ? 'Warning: $unanswered nodes unlinked.\nProceed?' : 'All nodes linked. Ready to commit?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ABORT')),
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
               _finishTest();
             },
-            child: const Text('Submit'),
+            child: const Text('COMMIT'),
           )
         ],
+      ),
+    );
+  }
+
+  void _openScratchpad() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, anim1, anim2) {
+        return ScratchpadOverlay(
+          initialData: _activeTest.scratchpadJson,
+          onSaveAndClose: (jsonResult) {
+            setState(() {
+              _activeTest.scratchpadJson = jsonResult;
+            });
+            _saveProgressOnExit(); // Save to disk
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSteampunkTeX(String text, {bool isSelected = false, bool isOption = false}) {
+    // Injecting standard TeX styling
+    String color = isSelected ? '#EADDCD' : '#2B1C10';
+    String weight = isOption ? 'normal' : 'bold';
+    return TeXView(
+      child: TeXViewDocument(text, style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'};')),
+      style: const TeXViewStyle(
+        margin: TeXViewMargin.all(0),
+        padding: TeXViewPadding.all(0),
+        backgroundColor: Colors.transparent,
       ),
     );
   }
@@ -463,30 +639,31 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
 
     return PopScope(
       canPop: true,
-      onPopInvoked: (didPop) {
-         _saveProgressOnExit(); // Save on hardware back button
-      },
+      onPopInvoked: (didPop) => _saveProgressOnExit(),
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Q${_currentIndex + 1} / ${_activeTest.questions.length}'),
+          title: Text('SEQ ${_currentIndex + 1}/${_activeTest.questions.length}', style: const TextStyle(letterSpacing: 2)),
           actions: [
             Center(
               child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: (_activeTest.remainingTimeMs < 300000) ? Colors.red.withOpacity(0.2) : Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(8),
+                  color: (_activeTest.remainingTimeMs < 300000) ? steamBlood : steamParchment,
+                  border: Border.all(color: steamBrass, width: 2),
+                  boxShadow: [if (_activeTest.remainingTimeMs < 300000) BoxShadow(color: steamBlood, blurRadius: 10, spreadRadius: 2)],
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.timer, size: 18, color: (_activeTest.remainingTimeMs < 300000) ? Colors.red : null),
-                    const SizedBox(width: 4),
+                    Icon(Icons.hourglass_bottom, size: 18, color: (_activeTest.remainingTimeMs < 300000) ? steamBrass : steamDarkInk),
+                    const SizedBox(width: 8),
                     Text(
                       timeString,
                       style: TextStyle(
-                        fontWeight: FontWeight.bold, 
+                        fontFamily: 'Courier',
+                        fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: (_activeTest.remainingTimeMs < 300000) ? Colors.red : null
+                        color: (_activeTest.remainingTimeMs < 300000) ? steamBrass : steamDarkInk,
                       ),
                     ),
                   ],
@@ -495,78 +672,99 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
             ),
             Builder(
               builder: (ctx) => IconButton(
-                icon: const Icon(Icons.grid_view),
+                icon: const Icon(Icons.account_tree),
                 onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-                tooltip: 'Question Explorer',
               ),
             ),
           ],
         ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: _openScratchpad,
+          backgroundColor: steamDarkInk,
+          foregroundColor: steamBrass,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: steamCopper, width: 2)),
+          elevation: 10,
+          child: const Icon(Icons.draw),
+        ),
         endDrawer: _buildQuestionExplorer(),
-        body: Column(
-          children: [
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: (idx) {
-                  setState(() {
-                    _currentIndex = idx;
-                    _activeTest.questions[_currentIndex].visited = true;
-                  });
-                },
-                itemCount: _activeTest.questions.length,
-                itemBuilder: (context, index) {
-                  final q = _activeTest.questions[index];
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(q.text, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 24),
-                        ...List.generate(q.options.length, (optIdx) {
-                          bool isSelected = q.selectedIndex == optIdx;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: InkWell(
-                              onTap: () => setState(() => q.selectedIndex = optIdx),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.5),
-                                    width: isSelected ? 2 : 1,
+        body: Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: steamCopper, width: 4),
+          ),
+          child: Column(
+            children: [
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (idx) {
+                    setState(() {
+                      _currentIndex = idx;
+                      _activeTest.questions[_currentIndex].visited = true;
+                    });
+                  },
+                  itemCount: _activeTest.questions.length,
+                  itemBuilder: (context, index) {
+                    final q = _activeTest.questions[index];
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: steamParchment,
+                              border: Border.all(color: steamDarkInk, width: 2),
+                              boxShadow: [steamShadow],
+                            ),
+                            child: _buildSteampunkTeX(q.text),
+                          ),
+                          const SizedBox(height: 32),
+                          ...List.generate(q.options.length, (optIdx) {
+                            bool isSelected = q.selectedIndex == optIdx;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16.0),
+                              child: InkWell(
+                                onTap: () => setState(() => q.selectedIndex = optIdx),
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? steamDarkInk : steamParchment,
+                                    border: Border.all(color: isSelected ? steamBrass : steamDarkInk, width: isSelected ? 3 : 1),
+                                    boxShadow: isSelected ? [BoxShadow(color: steamBrass.withOpacity(0.5), blurRadius: 10)] : null,
                                   ),
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 14,
-                                      backgroundColor: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.2),
-                                      child: Text(
-                                        String.fromCharCode(65 + optIdx), // A, B, C, D
-                                        style: TextStyle(color: isSelected ? Theme.of(context).colorScheme.onPrimary : Colors.black, fontSize: 12),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 30,
+                                        height: 30,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: isSelected ? steamBrass : Colors.transparent,
+                                          border: Border.all(color: isSelected ? steamDarkInk : steamDarkInk, width: 2),
+                                        ),
+                                        child: Text(
+                                          String.fromCharCode(65 + optIdx),
+                                          style: TextStyle(color: isSelected ? steamDarkInk : steamDarkInk, fontWeight: FontWeight.bold),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(child: Text(q.options[optIdx], style: const TextStyle(fontSize: 16))),
-                                  ],
+                                      const SizedBox(width: 16),
+                                      Expanded(child: _buildSteampunkTeX(q.options[optIdx], isSelected: isSelected, isOption: true)),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  );
-                },
+                            );
+                          }),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
-            _buildBottomNavigation(),
-          ],
+              _buildBottomNavigation(),
+            ],
+          ),
         ),
       ),
     );
@@ -575,10 +773,10 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   Widget _buildBottomNavigation() {
     final q = _activeTest.questions[_currentIndex];
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, -2))],
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(
+        color: steamDarkInk,
+        border: Border(top: BorderSide(color: steamBrass, width: 3)),
       ),
       child: SafeArea(
         child: Row(
@@ -586,29 +784,33 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
           children: [
             TextButton.icon(
               onPressed: _currentIndex > 0 ? () => _goToQuestion(_currentIndex - 1) : null,
-              icon: const Icon(Icons.arrow_back_ios, size: 14),
-              label: const Text('Prev'),
+              icon: const Icon(Icons.arrow_back_ios, size: 14, color: steamBrass),
+              label: const Text('REVERT', style: TextStyle(color: steamBrass, fontWeight: FontWeight.bold)),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: q.isMarkedForReview ? Colors.purple.withOpacity(0.2) : null,
-                foregroundColor: q.isMarkedForReview ? Colors.purple : null,
+                backgroundColor: q.isMarkedForReview ? steamCopper : steamParchment,
+                foregroundColor: steamDarkInk,
+                side: BorderSide(color: q.isMarkedForReview ? steamBrass : steamDarkInk, width: 2),
+                shadowColor: q.isMarkedForReview ? steamBrass : null,
+                elevation: q.isMarkedForReview ? 10 : 0,
               ),
               onPressed: () {
                 setState(() => q.isMarkedForReview = !q.isMarkedForReview);
               },
               icon: const Icon(Icons.flag),
-              label: Text(q.isMarkedForReview ? 'Unmark' : 'Mark Review'),
+              label: Text(q.isMarkedForReview ? 'FLAGGED' : 'FLAG'),
             ),
             if (_currentIndex < _activeTest.questions.length - 1)
               TextButton(
                 onPressed: () => _goToQuestion(_currentIndex + 1),
-                child: const Row(children: [Text('Next'), SizedBox(width: 4), Icon(Icons.arrow_forward_ios, size: 14)]),
+                child: const Row(children: [Text('ADVANCE', style: TextStyle(color: steamBrass, fontWeight: FontWeight.bold)), SizedBox(width: 8), Icon(Icons.arrow_forward_ios, size: 14, color: steamBrass)]),
               )
             else
               FilledButton(
                 onPressed: _confirmSubmit,
-                child: const Text('Submit'),
+                style: FilledButton.styleFrom(backgroundColor: steamGreen, foregroundColor: steamParchment, side: const BorderSide(color: steamBrass, width: 2)),
+                child: const Text('SUBMIT', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
               ),
           ],
         ),
@@ -618,6 +820,8 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
 
   Widget _buildQuestionExplorer() {
     return Drawer(
+      backgroundColor: steamParchment,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: steamDarkInk, width: 4)),
       child: SafeArea(
         child: Column(
           children: [
@@ -626,33 +830,19 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Questions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Text('NODE MAP', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: steamDarkInk, letterSpacing: 2)),
                   FilledButton(
                     onPressed: () {
-                      Navigator.pop(context); // close drawer
+                      Navigator.pop(context);
                       _confirmSubmit();
                     },
-                    child: const Text('Submit'),
+                    style: FilledButton.styleFrom(backgroundColor: steamDarkInk, foregroundColor: steamBrass),
+                    child: const Text('COMMIT'),
                   )
                 ],
               ),
             ),
-            const Divider(height: 1),
-            // Legend
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _LegendItem(color: Colors.green, text: 'Answered'),
-                  _LegendItem(color: Colors.red, text: 'Unanswered'),
-                  _LegendItem(color: Colors.purple, text: 'Marked'),
-                  _LegendItem(color: Colors.grey.shade300, text: 'Not Visited', isLight: true),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
+            const Divider(color: steamCopper, thickness: 2),
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(16),
@@ -664,18 +854,19 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                 itemCount: _activeTest.questions.length,
                 itemBuilder: (ctx, i) {
                   final q = _activeTest.questions[i];
-                  Color bgColor = Colors.grey.shade300;
-                  Color textColor = Colors.black;
+                  Color bgColor = Colors.transparent;
+                  Color borderColor = steamDarkInk;
+                  Color textColor = steamDarkInk;
 
                   if (q.isMarkedForReview) {
-                    bgColor = Colors.purple;
-                    textColor = Colors.white;
+                    bgColor = steamCopper;
+                    textColor = steamParchment;
                   } else if (q.selectedIndex != null) {
-                    bgColor = Colors.green;
-                    textColor = Colors.white;
+                    bgColor = steamGreen;
+                    textColor = steamParchment;
                   } else if (q.visited) {
-                    bgColor = Colors.red;
-                    textColor = Colors.white;
+                    bgColor = steamBlood;
+                    textColor = steamParchment;
                   }
 
                   bool isCurrent = i == _currentIndex;
@@ -688,11 +879,11 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: bgColor,
-                        shape: BoxShape.circle,
-                        border: isCurrent ? Border.all(color: Colors.blueAccent, width: 3) : null,
+                        border: Border.all(color: isCurrent ? steamBrass : borderColor, width: isCurrent ? 4 : 2),
+                        boxShadow: isCurrent ? [BoxShadow(color: steamBrass.withOpacity(0.8), blurRadius: 10)] : null,
                       ),
                       alignment: Alignment.center,
-                      child: Text('${i + 1}', style: TextStyle(color: textColor, fontWeight: isCurrent ? FontWeight.bold : null)),
+                      child: Text('${i + 1}', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
                     ),
                   );
                 },
@@ -705,24 +896,336 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   }
 }
 
-class _LegendItem extends StatelessWidget {
-  final Color color;
-  final String text;
-  final bool isLight;
-  const _LegendItem({required this.color, required this.text, this.isLight = false});
+// --- SCRATCHPAD OVERLAY CORE ENGINE ---
+
+class ScratchpadOverlay extends StatefulWidget {
+  final String? initialData;
+  final Function(String?) onSaveAndClose;
+
+  const ScratchpadOverlay({super.key, this.initialData, required this.onSaveAndClose});
+
+  @override
+  State<ScratchpadOverlay> createState() => _ScratchpadOverlayState();
+}
+
+class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
+  List<DrawLayer> _layers = [DrawLayer(name: 'Base Layer')];
+  int _activeLayerIndex = 0;
+  DrawTool _currentTool = DrawTool.pen;
+  double _currentWidth = 3.0;
+
+  // Undo/Redo tracking per layer: a stack of stroke counts
+  List<List<DrawStroke>> _undoStack = [];
+  List<List<DrawStroke>> _redoStack = [];
+
+  List<Offset> _currentPath = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialData != null) {
+      try {
+        final decoded = jsonDecode(widget.initialData!);
+        _layers = (decoded as List).map((l) => DrawLayer.fromJson(l)).toList();
+        if (_layers.isEmpty) _layers = [DrawLayer(name: 'Base Layer')];
+      } catch (e) {
+        // Fallback to empty if corrupt
+      }
+    }
+  }
+
+  void _saveSnapshotForUndo() {
+    _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
+    _redoStack.clear();
+    // Cap memory
+    if (_undoStack.length > 20) _undoStack.removeAt(0);
+  }
+
+  void _undo() {
+    if (_undoStack.isNotEmpty) {
+      _redoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
+      setState(() {
+        _layers[_activeLayerIndex].strokes = _undoStack.removeLast();
+      });
+    }
+  }
+
+  void _redo() {
+    if (_redoStack.isNotEmpty) {
+      _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
+      setState(() {
+        _layers[_activeLayerIndex].strokes = _redoStack.removeLast();
+      });
+    }
+  }
+
+  void _handlePanStart(DragStartDetails details) {
+    if (!_layers[_activeLayerIndex].isVisible) return;
+    _saveSnapshotForUndo();
+    setState(() {
+      _currentPath = [details.localPosition];
+      _layers[_activeLayerIndex].strokes.add(DrawStroke(tool: _currentTool, points: _currentPath, width: _currentWidth));
+    });
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    if (!_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
+    setState(() {
+      if (_currentTool == DrawTool.pen || _currentTool == DrawTool.eraser) {
+        _currentPath.add(details.localPosition);
+      } else {
+        // For shapes, only keep start and current pos
+        if (_currentPath.length > 1) {
+          _currentPath[1] = details.localPosition;
+        } else {
+          _currentPath.add(details.localPosition);
+        }
+      }
+    });
+  }
+
+  void _handlePanEnd(DragEndDetails details) {
+    _currentPath = [];
+  }
+
+  void _addLayer() {
+    setState(() {
+      _layers.add(DrawLayer(name: 'Layer ${_layers.length + 1}'));
+      _activeLayerIndex = _layers.length - 1;
+      _undoStack.clear();
+      _redoStack.clear();
+    });
+  }
+
+  void _clearActiveLayer() {
+    _saveSnapshotForUndo();
+    setState(() {
+      _layers[_activeLayerIndex].strokes.clear();
+    });
+  }
+
+  void _closeAndSave() {
+    String jsonStr = jsonEncode(_layers.map((l) => l.toJson()).toList());
+    widget.onSaveAndClose(jsonStr);
+    Navigator.of(context).pop();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(text, style: TextStyle(fontSize: 12, color: isLight ? Colors.grey.shade700 : null)),
-      ],
+    return Scaffold(
+      backgroundColor: steamParchment,
+      appBar: AppBar(
+        leading: IconButton(icon: const Icon(Icons.close), onPressed: _closeAndSave),
+        title: const Text('DIGITAL SCRATCHPAD', style: TextStyle(letterSpacing: 2)),
+        actions: [
+          IconButton(icon: const Icon(Icons.undo), onPressed: _undoStack.isNotEmpty ? _undo : null),
+          IconButton(icon: const Icon(Icons.redo), onPressed: _redoStack.isNotEmpty ? _redo : null),
+          Builder(builder: (ctx) => IconButton(icon: const Icon(Icons.layers), onPressed: () => Scaffold.of(ctx).openEndDrawer())),
+        ],
+      ),
+      endDrawer: _buildLayerManager(),
+      body: Column(
+        children: [
+          // Toolbar
+          Container(
+            color: steamDarkInk,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              children: [
+                _ToolButton(icon: Icons.edit, tool: DrawTool.pen, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.pen)),
+                _ToolButton(icon: Icons.horizontal_rule, tool: DrawTool.line, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.line)),
+                _ToolButton(icon: Icons.crop_square, tool: DrawTool.square, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.square)),
+                _ToolButton(icon: Icons.circle_outlined, tool: DrawTool.circle, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.circle)),
+                _ToolButton(icon: Icons.layers_clear, tool: DrawTool.eraser, current: _currentTool, onTap: () => setState(() => _currentTool = DrawTool.eraser)),
+                const Spacer(),
+                const Icon(Icons.line_weight, color: steamBrass, size: 16),
+                Expanded(
+                  flex: 2,
+                  child: Slider(
+                    value: _currentWidth,
+                    min: 1,
+                    max: 20,
+                    activeColor: steamBrass,
+                    inactiveColor: steamParchment.withOpacity(0.3),
+                    onChanged: (v) => setState(() => _currentWidth = v),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.5), // Slightly transparent to let parchment bleed through
+                border: Border.all(color: steamCopper, width: 4),
+                boxShadow: [steamShadow],
+              ),
+              child: ClipRect(
+                child: GestureDetector(
+                  onPanStart: _handlePanStart,
+                  onPanUpdate: _handlePanUpdate,
+                  onPanEnd: _handlePanEnd,
+                  child: CustomPaint(
+                    painter: ScratchpadPainter(layers: _layers),
+                    size: Size.infinite,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLayerManager() {
+    return Drawer(
+      backgroundColor: steamParchment,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: steamDarkInk, width: 4)),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: steamDarkInk,
+            width: double.infinity,
+            child: const Text('LAYER MANAGER', style: TextStyle(color: steamBrass, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2)),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(child: FilledButton.icon(onPressed: _addLayer, icon: const Icon(Icons.add), label: const Text('ADD'))),
+                const SizedBox(width: 8),
+                Expanded(child: FilledButton.icon(onPressed: _clearActiveLayer, icon: const Icon(Icons.clear), label: const Text('CLEAR'), style: FilledButton.styleFrom(backgroundColor: steamBlood))),
+              ],
+            ),
+          ),
+          const Divider(color: steamCopper, thickness: 2),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _layers.length,
+              itemBuilder: (ctx, i) {
+                final layer = _layers[i];
+                bool isActive = i == _activeLayerIndex;
+                return Container(
+                  decoration: BoxDecoration(border: Border.all(color: isActive ? steamBrass : Colors.transparent, width: 2), color: isActive ? steamDarkInk.withOpacity(0.1) : null),
+                  child: ListTile(
+                    leading: IconButton(
+                      icon: Icon(layer.isVisible ? Icons.visibility : Icons.visibility_off, color: steamDarkInk),
+                      onPressed: () => setState(() => layer.isVisible = !layer.isVisible),
+                    ),
+                    title: Text(layer.name, style: TextStyle(fontWeight: isActive ? FontWeight.bold : FontWeight.normal)),
+                    trailing: _layers.length > 1
+                        ? IconButton(
+                            icon: const Icon(Icons.delete, color: steamBlood),
+                            onPressed: () {
+                              setState(() {
+                                _layers.removeAt(i);
+                                if (_activeLayerIndex >= _layers.length) _activeLayerIndex = _layers.length - 1;
+                              });
+                            },
+                          )
+                        : null,
+                    onTap: () {
+                      setState(() {
+                        _activeLayerIndex = i;
+                        _undoStack.clear();
+                        _redoStack.clear();
+                      });
+                    },
+                  ),
+                );
+              },
+            ),
+          )
+        ],
+      ),
     );
   }
 }
+
+class _ToolButton extends StatelessWidget {
+  final IconData icon;
+  final DrawTool tool;
+  final DrawTool current;
+  final VoidCallback onTap;
+
+  const _ToolButton({required this.icon, required this.tool, required this.current, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    bool isSel = tool == current;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSel ? steamCopper : Colors.transparent,
+          border: Border.all(color: isSel ? steamBrass : Colors.transparent, width: 2),
+          boxShadow: isSel ? [BoxShadow(color: steamBrass.withOpacity(0.6), blurRadius: 8)] : null,
+        ),
+        child: Icon(icon, color: isSel ? steamDarkInk : steamParchment),
+      ),
+    );
+  }
+}
+
+class ScratchpadPainter extends CustomPainter {
+  final List<DrawLayer> layers;
+  ScratchpadPainter({required this.layers});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
+
+    for (var layer in layers) {
+      if (!layer.isVisible) continue;
+
+      for (var stroke in layer.strokes) {
+        if (stroke.points.isEmpty) continue;
+
+        final paint = Paint()
+          ..color = stroke.tool == DrawTool.eraser ? Colors.transparent : steamDarkInk
+          ..strokeWidth = stroke.width
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke;
+
+        if (stroke.tool == DrawTool.eraser) {
+          paint.blendMode = BlendMode.clear;
+        }
+
+        if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
+          final path = Path();
+          path.moveTo(stroke.points.first.dx, stroke.points.first.dy);
+          for (int i = 1; i < stroke.points.length; i++) {
+            path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
+          }
+          canvas.drawPath(path, paint);
+        } else if (stroke.points.length >= 2) {
+          final start = stroke.points.first;
+          final end = stroke.points.last;
+
+          if (stroke.tool == DrawTool.line) {
+            canvas.drawLine(start, end, paint);
+          } else if (stroke.tool == DrawTool.square) {
+            canvas.drawRect(Rect.fromPoints(start, end), paint);
+          } else if (stroke.tool == DrawTool.circle) {
+            final radius = (start - end).distance / 2;
+            final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+            canvas.drawCircle(center, radius, paint);
+          }
+        }
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
 
 // --- RESULT SCREEN ---
 
@@ -736,63 +1239,76 @@ class TestResultScreen extends StatelessWidget {
     int incorrect = test.questions.length - (test.score ?? 0) - unattempted;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Results: ${test.title}')),
+      appBar: AppBar(title: Text('TELEMETRY: ${test.title}')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Text('Overall Score', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 8),
-                  Text('${test.score} / ${test.questions.length}', style: Theme.of(context).textTheme.displayMedium?.copyWith(color: Theme.of(context).colorScheme.primary)),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _ResultPill(title: 'Correct', count: test.score ?? 0, color: Colors.green),
-                      _ResultPill(title: 'Incorrect', count: incorrect, color: Colors.red),
-                      _ResultPill(title: 'Unattempted', count: unattempted, color: Colors.grey),
-                    ],
-                  ),
-                  const Divider(height: 32),
-                  Text('Time Taken: ${(test.totalTimeTakenMs / 60000).toStringAsFixed(1)} Mins'),
-                ],
-              ),
+          Container(
+            decoration: BoxDecoration(border: Border.all(color: steamBrass, width: 4), boxShadow: [steamShadow], color: steamDarkInk),
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              children: [
+                const Text('SYSTEM EFFICIENCY', style: TextStyle(color: steamBrass, fontSize: 20, letterSpacing: 2, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                Text('${test.score} / ${test.questions.length}', style: const TextStyle(color: steamParchment, fontSize: 48, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _ResultPill(title: 'OPTIMAL', count: test.score ?? 0, color: steamGreen),
+                    _ResultPill(title: 'ERRORS', count: incorrect, color: steamBlood),
+                    _ResultPill(title: 'VOID', count: unattempted, color: Colors.grey),
+                  ],
+                ),
+                const Divider(height: 48, color: steamCopper, thickness: 2),
+                Text('EXECUTION TIME: ${(test.totalTimeTakenMs / 60000).toStringAsFixed(1)} CYCLES (MINS)', style: const TextStyle(color: steamBrass, fontFamily: 'Courier')),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          const Text('Question Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
+          const Text('NODE BREAKDOWN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: steamDarkInk, letterSpacing: 2)),
+          const SizedBox(height: 12),
           ...test.questions.asMap().entries.map((entry) {
             int idx = entry.key;
             Question q = entry.value;
             bool isCorrect = q.selectedIndex == q.correctIndex;
             bool isAttempted = q.selectedIndex != null;
 
-            Color tileColor = isAttempted ? (isCorrect ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1)) : Colors.grey.withOpacity(0.1);
+            Color tileColor = isAttempted ? (isCorrect ? steamGreen.withOpacity(0.2) : steamBlood.withOpacity(0.2)) : steamDarkInk.withOpacity(0.1);
             IconData icon = isAttempted ? (isCorrect ? Icons.check_circle : Icons.cancel) : Icons.remove_circle;
-            Color iconColor = isAttempted ? (isCorrect ? Colors.green : Colors.red) : Colors.grey;
+            Color iconColor = isAttempted ? (isCorrect ? steamGreen : steamBlood) : steamDarkInk;
 
-            return Card(
-              color: tileColor,
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(border: Border.all(color: steamDarkInk, width: 2), color: tileColor),
               child: ExpansionTile(
+                iconColor: steamDarkInk,
                 leading: Icon(icon, color: iconColor),
-                title: Text('Q${idx + 1}. ${q.text}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text('Time: ${(q.timeTakenMs / 1000).toStringAsFixed(1)}s'),
+                title: Text('NODE ${idx + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: steamDarkInk)),
+                subtitle: Text('Time: ${(q.timeTakenMs / 1000).toStringAsFixed(1)}s', style: const TextStyle(fontFamily: 'Courier')),
                 children: [
-                  Padding(
+                  Container(
+                    color: steamParchment,
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(q.text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        const SizedBox(height: 12),
-                        Text('Your Answer: ${isAttempted ? q.options[q.selectedIndex!] : 'None'}', style: TextStyle(color: isCorrect ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        if (!isCorrect) Text('Correct Answer: ${q.options[q.correctIndex]}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                         TeXView(child: TeXViewDocument(q.text, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;'))),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(border: Border.all(color: isCorrect ? steamGreen : steamBlood, width: 2)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('INPUT: ${isAttempted ? String.fromCharCode(65 + q.selectedIndex!) : 'NULL'}', style: TextStyle(color: isCorrect ? steamGreen : steamBlood, fontWeight: FontWeight.bold)),
+                              if (!isCorrect) ...[
+                                const SizedBox(height: 8),
+                                Text('REQUIRED OPTIMUM: ${String.fromCharCode(65 + q.correctIndex)}', style: const TextStyle(color: steamGreen, fontWeight: FontWeight.bold)),
+                              ]
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   )
@@ -816,12 +1332,12 @@ class _ResultPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, letterSpacing: 1)),
         Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
-          child: Text('$count', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18)),
+          margin: const EdgeInsets.top: 8,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          decoration: BoxDecoration(border: Border.all(color: color, width: 2)),
+          child: Text('$count', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 24)),
         )
       ],
     );
@@ -838,8 +1354,14 @@ class StatsScreen extends StatelessWidget {
     final tests = context.watch<AppState>().tests.where((t) => t.isCompleted).toList();
     if (tests.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Advanced Analytics')),
-        body: const Center(child: Text('Complete tests to see your performance statistics.')),
+        appBar: AppBar(title: const Text('TELEMETRY')),
+        body: Center(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(border: Border.all(color: steamCopper, width: 2), color: steamParchment),
+            child: const Text('INSUFFICIENT DATA.\nEXECUTE PROTOCOLS FIRST.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ),
       );
     }
 
@@ -847,7 +1369,6 @@ class StatsScreen extends StatelessWidget {
     int totalCorrect = 0;
     int totalTimeMs = 0;
 
-    // Advanced category tracking
     Map<String, Map<String, num>> categoryStats = {};
 
     for (var t in tests) {
@@ -855,9 +1376,7 @@ class StatsScreen extends StatelessWidget {
       totalCorrect += t.score ?? 0;
       totalTimeMs += t.totalTimeTakenMs;
 
-      if (!categoryStats.containsKey(t.category)) {
-        categoryStats[t.category] = {'qs': 0, 'correct': 0, 'timeMs': 0};
-      }
+      if (!categoryStats.containsKey(t.category)) categoryStats[t.category] = {'qs': 0, 'correct': 0, 'timeMs': 0};
       categoryStats[t.category]!['qs'] = categoryStats[t.category]!['qs']! + t.questions.length;
       categoryStats[t.category]!['correct'] = categoryStats[t.category]!['correct']! + (t.score ?? 0);
       categoryStats[t.category]!['timeMs'] = categoryStats[t.category]!['timeMs']! + t.totalTimeTakenMs;
@@ -866,12 +1385,11 @@ class StatsScreen extends StatelessWidget {
     double accuracy = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
     double avgTimePerQuestion = totalQuestions > 0 ? (totalTimeMs / totalQuestions) / 1000 : 0;
 
-    // Sort categories by accuracy for Strong/Weak insights
     var sortedCategories = categoryStats.entries.toList()
       ..sort((a, b) {
         double accA = a.value['qs']! > 0 ? a.value['correct']! / a.value['qs']! : 0;
         double accB = b.value['qs']! > 0 ? b.value['correct']! / b.value['qs']! : 0;
-        return accA.compareTo(accB); // Ascending: Weakest first
+        return accA.compareTo(accB);
       });
 
     String weakest = sortedCategories.first.key;
@@ -884,110 +1402,78 @@ class StatsScreen extends StatelessWidget {
     categoryStats.forEach((category, stats) {
       double catAcc = stats['qs']! > 0 ? (stats['correct']! / stats['qs']!) * 100 : 0;
       barGroups.add(BarChartGroupData(x: xIndex, barRods: [
-        BarChartRodData(toY: catAcc, color: Colors.blueAccent, width: 20, borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)))
+        BarChartRodData(toY: catAcc, color: steamCopper, width: 20, borderRadius: BorderRadius.zero)
       ]));
       xLabels.add(category.length > 8 ? '${category.substring(0, 6)}..' : category);
       xIndex++;
     });
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Advanced Analytics')),
+      appBar: AppBar(title: const Text('GLOBAL TELEMETRY', style: TextStyle(letterSpacing: 2))),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Overview Cards
             Row(
               children: [
-                Expanded(child: _StatCard(title: 'Overall Accuracy', value: '${accuracy.toStringAsFixed(1)}%', icon: Icons.troubleshoot, color: Colors.blue)),
+                Expanded(child: _StatCard(title: 'GLOBAL ACCURACY', value: '${accuracy.toStringAsFixed(1)}%', icon: Icons.troubleshoot, color: steamBrass)),
                 const SizedBox(width: 12),
-                Expanded(child: _StatCard(title: 'Avg Time / Q', value: '${avgTimePerQuestion.toStringAsFixed(1)}s', icon: Icons.timer, color: Colors.orange)),
+                Expanded(child: _StatCard(title: 'AVG CYCLE/NODE', value: '${avgTimePerQuestion.toStringAsFixed(1)}s', icon: Icons.timer, color: steamCopper)),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _StatCard(title: 'Strongest', value: strongest, icon: Icons.trending_up, color: Colors.green)),
+                Expanded(child: _StatCard(title: 'OPTIMAL SECTOR', value: strongest, icon: Icons.trending_up, color: steamGreen)),
                 const SizedBox(width: 12),
-                Expanded(child: _StatCard(title: 'Weakest', value: weakest, icon: Icons.trending_down, color: Colors.red)),
+                Expanded(child: _StatCard(title: 'CRITICAL SECTOR', value: weakest, icon: Icons.trending_down, color: steamBlood)),
               ],
             ),
             const SizedBox(height: 32),
-            const Text('Category Accuracy Graph', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 250,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  maxY: 100,
-                  barTouchData: BarTouchData(enabled: true),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (val, meta) {
-                          if (val.toInt() >= 0 && val.toInt() < xLabels.length) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8.0),
-                              child: Text(xLabels[val.toInt()], style: const TextStyle(fontSize: 10)),
-                            );
-                          }
-                          return const SizedBox();
-                        },
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(border: Border.all(color: steamDarkInk, width: 2), color: steamParchment),
+              child: Column(
+                children: [
+                  const Text('SECTOR DIAGNOSTICS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: steamDarkInk, letterSpacing: 2)),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    height: 250,
+                    child: BarChart(
+                      BarChartData(
+                        alignment: BarChartAlignment.spaceAround,
+                        maxY: 100,
+                        barTouchData: BarTouchData(enabled: true),
+                        titlesData: FlTitlesData(
+                          show: true,
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (val, meta) {
+                                if (val.toInt() >= 0 && val.toInt() < xLabels.length) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Text(xLabels[val.toInt()], style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: steamDarkInk)),
+                                  );
+                                }
+                                return const SizedBox();
+                              },
+                            ),
+                          ),
+                          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        ),
+                        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (value) => FlLine(color: steamDarkInk.withOpacity(0.2), strokeWidth: 1)),
+                        borderData: FlBorderData(show: true, border: const Border(bottom: BorderSide(color: steamDarkInk, width: 2), left: BorderSide(color: steamDarkInk, width: 2))),
+                        barGroups: barGroups,
                       ),
                     ),
-                    leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
-                  gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.2), strokeWidth: 1)),
-                  borderData: FlBorderData(show: false),
-                  barGroups: barGroups,
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 32),
-            const Text('In-Depth Category Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 12),
-            ...categoryStats.entries.map((e) {
-              double acc = e.value['qs']! > 0 ? (e.value['correct']! / e.value['qs']!) * 100 : 0;
-              double time = e.value['qs']! > 0 ? (e.value['timeMs']! / e.value['qs']!) / 1000 : 0;
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text('${acc.toStringAsFixed(1)}%', style: TextStyle(fontWeight: FontWeight.bold, color: acc > 70 ? Colors.green : (acc > 40 ? Colors.orange : Colors.red))),
-                            const Text('Accuracy', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text('${time.toStringAsFixed(1)}s', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            const Text('Avg Time', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
           ],
         ),
       ),
@@ -1005,19 +1491,21 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 18), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 4),
-            Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: steamDarkInk,
+        border: Border.all(color: steamBrass, width: 2),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.3), blurRadius: 10)],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 12),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: steamParchment), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 4),
+          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: steamBrass, letterSpacing: 1)),
+        ],
       ),
     );
   }
@@ -1038,49 +1526,45 @@ class _ImportScreenState extends State<ImportScreen> {
   void _import() {
     try {
       context.read<AppState>().importJson(_controller.text);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Successful')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('DATA INJECTION SUCCESSFUL', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: steamGreen));
       _controller.clear();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Invalid JSON: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('CORRUPT DATA: $e'), backgroundColor: steamBlood));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Import Tests')),
+      appBar: AppBar(title: const Text('DATA INJECTION', style: TextStyle(letterSpacing: 2))),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              color: steamDarkInk,
+              child: const Text('WARNING: ENSURE DATA COMPLIES WITH STANDARD PROTOCOL BEFORE INJECTION.', style: TextStyle(color: steamBlood, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 16),
             Expanded(
-              child: TextField(
-                controller: _controller,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                  hintText: '''Paste JSON array here...
-
-Example Format:
-[
-  {
-    "id": "1",
-    "title": "Mock Test 1",
-    "category": "Physics",
-    "subcategory": "Mechanics",
-    "allocatedTimeMs": 3600000,
-    "questions": [
-      {
-        "text": "What is Newton's second law?",
-        "options": ["F=ma", "E=mc^2", "v=u+at", "W=Fs"],
-        "correctIndex": 0
-      }
-    ]
-  }
-]''',
-                  border: OutlineInputBorder(),
+              child: Container(
+                decoration: BoxDecoration(border: Border.all(color: steamBrass, width: 2), boxShadow: [steamShadow]),
+                child: TextField(
+                  controller: _controller,
+                  maxLines: null,
+                  expands: true,
+                  textAlignVertical: TextAlignVertical.top,
+                  style: const TextStyle(fontFamily: 'Courier', color: steamDarkInk),
+                  decoration: const InputDecoration(
+                    hintText: 'RAW JSON HERE...',
+                    border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    filled: true,
+                    fillColor: steamParchment,
+                  ),
                 ),
               ),
             ),
@@ -1088,14 +1572,16 @@ Example Format:
             FilledButton.icon(
               onPressed: _import,
               icon: const Icon(Icons.download),
-              label: const Text('Import Data'),
+              label: const Text('INJECT SEQUENCE', style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.bold)),
+              style: FilledButton.styleFrom(padding: const EdgeInsets.all(20)),
             ),
+            const SizedBox(height: 8),
             TextButton(
               onPressed: () {
                 context.read<AppState>().resetData();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All data cleared')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ALL DATABANKS PURGED'), backgroundColor: steamBlood));
               },
-              child: const Text('Clear All Data', style: TextStyle(color: Colors.red)),
+              child: const Text('PURGE ALL DATABANKS', style: TextStyle(color: steamBlood, fontWeight: FontWeight.bold, letterSpacing: 1)),
             )
           ],
         ),
