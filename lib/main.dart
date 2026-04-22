@@ -1334,7 +1334,7 @@ class _ResultPill extends StatelessWidget {
       children: [
         Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, letterSpacing: 1)),
         Container(
-          margin: const EdgeInsets.top: 8,
+          margin: const EdgeInsets.only(top: 8),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           decoration: BoxDecoration(border: Border.all(color: color, width: 2)),
           child: Text('$count', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 24)),
