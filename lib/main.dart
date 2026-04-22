@@ -107,52 +107,6 @@ class MainApp extends StatelessWidget {
   }
 }
 
-// --- SCRATCHPAD MODELS ---
-
-enum DrawTool { pen, line, circle, square, eraser }
-
-class DrawStroke {
-  final DrawTool tool;
-  final List<Offset> points;
-  final double width;
-
-  DrawStroke({required this.tool, required this.points, required this.width});
-
-  Map<String, dynamic> toJson() => {
-        'tool': tool.index,
-        'points': points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
-        'width': width,
-      };
-
-  factory DrawStroke.fromJson(Map<String, dynamic> json) => DrawStroke(
-        tool: DrawTool.values[json['tool']],
-        points: (json['points'] as List)
-            .map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
-            .toList(),
-        width: (json['width'] as num).toDouble(),
-      );
-}
-
-class DrawLayer {
-  String name;
-  List<DrawStroke> strokes;
-  bool isVisible;
-
-  DrawLayer({required this.name, this.strokes = const [], this.isVisible = true});
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'strokes': strokes.map((s) => s.toJson()).toList(),
-        'isVisible': isVisible,
-      };
-
-  factory DrawLayer.fromJson(Map<String, dynamic> json) => DrawLayer(
-        name: json['name'],
-        strokes: (json['strokes'] as List).map((s) => DrawStroke.fromJson(s)).toList(),
-        isVisible: json['isVisible'],
-      );
-}
-
 // --- MODELS ---
 
 class Question {
@@ -207,7 +161,6 @@ class TestModel {
   int allocatedTimeMs;
   int remainingTimeMs;
   DateTime? dateCompleted;
-  String? scratchpadJson;
 
   TestModel({
     required this.id,
@@ -221,7 +174,6 @@ class TestModel {
     this.allocatedTimeMs = 3600000,
     int? remainingTimeMs,
     this.dateCompleted,
-    this.scratchpadJson,
   }) : remainingTimeMs = remainingTimeMs ?? allocatedTimeMs;
 
   Map<String, dynamic> toJson() => {
@@ -236,7 +188,6 @@ class TestModel {
         'allocatedTimeMs': allocatedTimeMs,
         'remainingTimeMs': remainingTimeMs,
         'dateCompleted': dateCompleted?.toIso8601String(),
-        'scratchpadJson': scratchpadJson,
       };
 
   factory TestModel.fromJson(Map<String, dynamic> json) => TestModel(
@@ -251,7 +202,6 @@ class TestModel {
         allocatedTimeMs: json['allocatedTimeMs'] ?? 3600000,
         remainingTimeMs: json['remainingTimeMs'],
         dateCompleted: json['dateCompleted'] != null ? DateTime.parse(json['dateCompleted']) : null,
-        scratchpadJson: json['scratchpadJson'],
       );
 }
 
@@ -265,9 +215,14 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final String? data = prefs.getString('app_data_steam');
     if (data != null) {
-      final List decoded = jsonDecode(data);
-      _tests = decoded.map((e) => TestModel.fromJson(e)).toList();
-      notifyListeners();
+      try {
+        final List decoded = jsonDecode(data);
+        _tests = decoded.map((e) => TestModel.fromJson(e)).toList();
+        notifyListeners();
+      } catch (e) {
+        // Fallback for corrupted data
+        _tests = [];
+      }
     }
   }
 
@@ -598,24 +553,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
     );
   }
 
-  void _openScratchpad() {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black87,
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, anim1, anim2) {
-        return ScratchpadOverlay(
-          initialData: _activeTest.scratchpadJson,
-          onSaveAndClose: (jsonResult) {
-            setState(() => _activeTest.scratchpadJson = jsonResult);
-            _saveProgressOnExit();
-          },
-        );
-      },
-    );
-  }
-
   Widget _buildSteampunkTeX(String text, {bool isSelected = false, bool isOption = false}) {
     final color = isSelected ? '#EADDCD' : '#2B1C10';
     final weight = isOption ? 'normal' : 'bold';
@@ -631,9 +568,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
         backgroundColor: 'transparent',
         padding: TeXViewPadding.all(4),
         margin: TeXViewMargin.all(0),
-      ),
-      loadingWidget: const Center(
-        child: CircularProgressIndicator(color: steamCopper),
       ),
     );
   }
@@ -677,11 +611,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                   ],
                 ),
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.draw, color: steamBrass),
-              tooltip: 'Scratchpad',
-              onPressed: _openScratchpad,
             ),
             Builder(
               builder: (ctx) => IconButton(
@@ -905,365 +834,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   }
 }
 
-// --- SCRATCHPAD OVERLAY CORE ENGINE ---
-
-class ScratchpadOverlay extends StatefulWidget {
-  final String? initialData;
-  final Function(String?) onSaveAndClose;
-
-  const ScratchpadOverlay({super.key, this.initialData, required this.onSaveAndClose});
-
-  @override
-  State<ScratchpadOverlay> createState() => _ScratchpadOverlayState();
-}
-
-class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
-  List<DrawLayer> _layers = [DrawLayer(name: 'Base Layer')];
-  int _activeLayerIndex = 0;
-  DrawTool _currentTool = DrawTool.pen;
-  double _currentWidth = 3.0;
-  bool _isDrawingMode = true;
-
-  final TransformationController _transformCtrl = TransformationController();
-  List<List<DrawStroke>> _undoStack = [];
-  List<List<DrawStroke>> _redoStack = [];
-  List<Offset> _currentPath = [];
-  int? _activePointerId;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.initialData != null) {
-      try {
-        final decoded = jsonDecode(widget.initialData!);
-        _layers = (decoded as List).map((l) => DrawLayer.fromJson(l)).toList();
-        if (_layers.isEmpty) _layers = [DrawLayer(name: 'Base Layer')];
-      } catch (e) {}
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final size = MediaQuery.of(context).size;
-      _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
-    });
-  }
-
-  void _saveSnapshotForUndo() {
-    _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
-    _redoStack.clear();
-    if (_undoStack.length > 20) _undoStack.removeAt(0);
-  }
-
-  void _undo() {
-    if (_undoStack.isNotEmpty) {
-      _redoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
-      setState(() => _layers[_activeLayerIndex].strokes = _undoStack.removeLast());
-    }
-  }
-
-  void _redo() {
-    if (_redoStack.isNotEmpty) {
-      _undoStack.add(_layers[_activeLayerIndex].strokes.map((s) => DrawStroke(tool: s.tool, points: List.from(s.points), width: s.width)).toList());
-      setState(() => _layers[_activeLayerIndex].strokes = _redoStack.removeLast());
-    }
-  }
-
-  void _onPointerDown(PointerDownEvent event) {
-    if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible) return;
-    if (_activePointerId != null) return;
-
-    _activePointerId = event.pointer;
-    _saveSnapshotForUndo();
-
-    setState(() {
-      _currentPath = [event.localPosition];
-      _layers[_activeLayerIndex].strokes.add(DrawStroke(tool: _currentTool, points: _currentPath, width: _currentWidth));
-    });
-  }
-
-  void _onPointerMove(PointerMoveEvent event) {
-    if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
-    if (event.pointer != _activePointerId) return;
-
-    setState(() {
-      if (_currentTool == DrawTool.pen || _currentTool == DrawTool.eraser) {
-        _currentPath.add(event.localPosition);
-      } else if (_currentPath.length > 1) {
-        _currentPath[1] = event.localPosition;
-      } else {
-        _currentPath.add(event.localPosition);
-      }
-    });
-  }
-
-  void _onPointerUp(PointerUpEvent event) {
-    if (event.pointer == _activePointerId) {
-      _activePointerId = null;
-      _currentPath = [];
-    }
-  }
-
-  void _onPointerCancel(PointerCancelEvent event) {
-    if (event.pointer == _activePointerId) {
-      _activePointerId = null;
-      _currentPath = [];
-    }
-  }
-
-  void _addLayer() {
-    setState(() {
-      _layers.add(DrawLayer(name: 'Layer ${_layers.length + 1}'));
-      _activeLayerIndex = _layers.length - 1;
-      _undoStack.clear();
-      _redoStack.clear();
-    });
-  }
-
-  void _clearActiveLayer() {
-    _saveSnapshotForUndo();
-    setState(() => _layers[_activeLayerIndex].strokes.clear());
-  }
-
-  void _closeAndSave() {
-    String jsonStr = jsonEncode(_layers.map((l) => l.toJson()).toList());
-    widget.onSaveAndClose(jsonStr);
-    Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: steamParchment,
-      appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.close), onPressed: _closeAndSave),
-        title: const Text('DIGITAL SCRATCHPAD', style: TextStyle(letterSpacing: 2)),
-        actions: [
-          IconButton(
-            icon: Icon(_isDrawingMode ? Icons.pan_tool : Icons.edit),
-            onPressed: () => setState(() => _isDrawingMode = !_isDrawingMode),
-            tooltip: _isDrawingMode ? 'Switch to Move/Zoom' : 'Switch to Draw',
-          ),
-          IconButton(
-            icon: const Icon(Icons.zoom_out_map),
-            onPressed: () {
-              final size = MediaQuery.of(context).size;
-              _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
-            },
-            tooltip: 'Reset View',
-          ),
-          IconButton(icon: const Icon(Icons.undo), onPressed: _undoStack.isNotEmpty ? _undo : null),
-          IconButton(icon: const Icon(Icons.redo), onPressed: _redoStack.isNotEmpty ? _redo : null),
-          Builder(builder: (ctx) => IconButton(icon: const Icon(Icons.layers), onPressed: () => Scaffold.of(ctx).openEndDrawer())),
-        ],
-      ),
-      endDrawer: _buildLayerManager(),
-      body: Column(
-        children: [
-          Container(
-            color: steamDarkInk,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                _ToolButton(icon: Icons.edit, tool: DrawTool.pen, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.pen; _isDrawingMode = true; })),
-                _ToolButton(icon: Icons.horizontal_rule, tool: DrawTool.line, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.line; _isDrawingMode = true; })),
-                _ToolButton(icon: Icons.crop_square, tool: DrawTool.square, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.square; _isDrawingMode = true; })),
-                _ToolButton(icon: Icons.circle_outlined, tool: DrawTool.circle, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.circle; _isDrawingMode = true; })),
-                _ToolButton(icon: Icons.layers_clear, tool: DrawTool.eraser, current: _currentTool, onTap: () => setState(() { _currentTool = DrawTool.eraser; _isDrawingMode = true; })),
-                const Spacer(),
-                const Icon(Icons.line_weight, color: steamBrass, size: 16),
-                Expanded(
-                  flex: 2,
-                  child: Slider(
-                    value: _currentWidth,
-                    min: 1,
-                    max: 20,
-                    activeColor: steamBrass,
-                    inactiveColor: steamParchment.withOpacity(0.3),
-                    onChanged: (v) => setState(() => _currentWidth = v),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.5),
-                border: Border.all(color: steamCopper, width: 4),
-                boxShadow: [steamShadow],
-              ),
-              child: ClipRect(
-                child: InteractiveViewer(
-                  transformationController: _transformCtrl,
-                  panEnabled: !_isDrawingMode,
-                  scaleEnabled: !_isDrawingMode,
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
-                  constrained: false,
-                  minScale: 0.1,
-                  maxScale: 10.0,
-                  child: Listener(
-                    behavior: HitTestBehavior.opaque,
-                    onPointerDown: _onPointerDown,
-                    onPointerMove: _onPointerMove,
-                    onPointerUp: _onPointerUp,
-                    onPointerCancel: _onPointerCancel,
-                    child: const SizedBox(
-                      width: 3000,
-                      height: 3000,
-                      child: CustomPaint(painter: ScratchpadPainter(layers: [])),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLayerManager() {
-    return Drawer(
-      backgroundColor: steamParchment,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: steamDarkInk, width: 4)),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: steamDarkInk,
-            width: double.infinity,
-            child: const Text('LAYER MANAGER', style: TextStyle(color: steamBrass, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(child: FilledButton.icon(onPressed: _addLayer, icon: const Icon(Icons.add), label: const Text('ADD'))),
-                const SizedBox(width: 8),
-                Expanded(child: FilledButton.icon(onPressed: _clearActiveLayer, icon: const Icon(Icons.clear), label: const Text('CLEAR'), style: FilledButton.styleFrom(backgroundColor: steamBlood))),
-              ],
-            ),
-          ),
-          const Divider(color: steamCopper, thickness: 2),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _layers.length,
-              itemBuilder: (ctx, i) {
-                final layer = _layers[i];
-                bool isActive = i == _activeLayerIndex;
-                return Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: isActive ? steamBrass : Colors.transparent, width: 2),
-                    color: isActive ? steamDarkInk.withOpacity(0.1) : null,
-                  ),
-                  child: ListTile(
-                    leading: IconButton(
-                      icon: Icon(layer.isVisible ? Icons.visibility : Icons.visibility_off, color: steamDarkInk),
-                      onPressed: () => setState(() => layer.isVisible = !layer.isVisible),
-                    ),
-                    title: Text(layer.name, style: TextStyle(fontWeight: isActive ? FontWeight.bold : FontWeight.normal)),
-                    trailing: _layers.length > 1
-                        ? IconButton(
-                            icon: const Icon(Icons.delete, color: steamBlood),
-                            onPressed: () => setState(() {
-                              _layers.removeAt(i);
-                              if (_activeLayerIndex >= _layers.length) _activeLayerIndex = _layers.length - 1;
-                            }),
-                          )
-                        : null,
-                    onTap: () {
-                      setState(() {
-                        _activeLayerIndex = i;
-                        _undoStack.clear();
-                        _redoStack.clear();
-                      });
-                    },
-                  ),
-                );
-              },
-            ),
-          )
-        ],
-      ),
-    );
-  }
-}
-
-class _ToolButton extends StatelessWidget {
-  final IconData icon;
-  final DrawTool tool;
-  final DrawTool current;
-  final VoidCallback onTap;
-
-  const _ToolButton({required this.icon, required this.tool, required this.current, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    bool isSel = tool == current;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: isSel ? steamCopper : Colors.transparent,
-          border: Border.all(color: isSel ? steamBrass : Colors.transparent, width: 2),
-          boxShadow: isSel ? [BoxShadow(color: steamBrass.withOpacity(0.6), blurRadius: 8)] : null,
-        ),
-        child: Icon(icon, color: isSel ? steamDarkInk : steamParchment),
-      ),
-    );
-  }
-}
-
-class ScratchpadPainter extends CustomPainter {
-  final List<DrawLayer> layers;
-  ScratchpadPainter({required this.layers});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (var layer in layers) {
-      if (!layer.isVisible) continue;
-      for (var stroke in layer.strokes) {
-        if (stroke.points.isEmpty) continue;
-
-        final paint = Paint()
-          ..color = stroke.tool == DrawTool.eraser ? Colors.transparent : steamDarkInk
-          ..strokeWidth = stroke.width
-          ..strokeCap = StrokeCap.round
-          ..style = PaintingStyle.stroke;
-
-        if (stroke.tool == DrawTool.eraser) paint.blendMode = BlendMode.clear;
-
-        if (stroke.points.length == 1) {
-          canvas.drawCircle(stroke.points.first, stroke.width / 2, paint..style = PaintingStyle.fill);
-        } else if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
-          final path = Path()..moveTo(stroke.points.first.dx, stroke.points.first.dy);
-          for (int i = 1; i < stroke.points.length; i++) {
-            path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
-          }
-          canvas.drawPath(path, paint);
-        } else if (stroke.points.length >= 2) {
-          final start = stroke.points.first;
-          final end = stroke.points.last;
-          if (stroke.tool == DrawTool.line) {
-            canvas.drawLine(start, end, paint);
-          } else if (stroke.tool == DrawTool.square) {
-            canvas.drawRect(Rect.fromPoints(start, end), paint);
-          } else if (stroke.tool == DrawTool.circle) {
-            final radius = (start - end).distance / 2;
-            final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
-            canvas.drawCircle(center, radius, paint);
-          }
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
 // --- RESULT SCREEN ---
 
 class TestResultScreen extends StatelessWidget {
@@ -1277,8 +847,11 @@ class TestResultScreen extends StatelessWidget {
              $text
            </div>''',
       ),
-      style: const TeXViewStyle(backgroundColor: 'transparent'),
-      loadingWidget: const CircularProgressIndicator(color: steamCopper),
+      style: const TeXViewStyle(
+        backgroundColor: 'transparent',
+        padding: TeXViewPadding.all(4),
+        margin: TeXViewMargin.all(0),
+      ),
     );
   }
 
