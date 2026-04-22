@@ -619,10 +619,14 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   Widget _buildSteampunkTeX(String text, {bool isSelected = false, bool isOption = false}) {
     String color = isSelected ? '#EADDCD' : '#2B1C10';
     String weight = isOption ? 'normal' : 'bold';
+    
+    // CRITICAL FIX: Sanitize HTML breaks like < and >
+    String safeText = text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    
     return TeXView(
       renderingEngine: const TeXViewRenderingEngine.katex(),
-      child: TeXViewDocument(
-        text, 
+      child: TeXViewMarkdown(
+        safeText, 
         style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'}; padding: 4px;')
       ),
       style: const TeXViewStyle(
@@ -920,6 +924,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   List<List<DrawStroke>> _undoStack = [];
   List<List<DrawStroke>> _redoStack = [];
   List<Offset> _currentPath = [];
+  int? _activePointerId; // CRITICAL FIX: Tracks specific finger to prevent multi-touch connected lines
 
   @override
   void initState() {
@@ -933,7 +938,12 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
         // Fallback
       }
     }
-    _transformCtrl.value = Matrix4.identity()..translate(-500.0, -500.0);
+    
+    // CRITICAL FIX: Center the Massive Canvas automatically on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final size = MediaQuery.of(context).size;
+      _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
+    });
   }
 
   void _saveSnapshotForUndo() {
@@ -962,7 +972,11 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
 
   void _onPointerDown(PointerDownEvent event) {
     if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible) return;
+    if (_activePointerId != null) return; // CRITICAL FIX: Ignore secondary fingers
+    
+    _activePointerId = event.pointer;
     _saveSnapshotForUndo();
+    
     setState(() {
       _currentPath = [event.localPosition];
       _layers[_activeLayerIndex].strokes.add(DrawStroke(tool: _currentTool, points: _currentPath, width: _currentWidth));
@@ -971,6 +985,8 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
 
   void _onPointerMove(PointerMoveEvent event) {
     if (!_isDrawingMode || !_layers[_activeLayerIndex].isVisible || _currentPath.isEmpty) return;
+    if (event.pointer != _activePointerId) return; // CRITICAL FIX: Ignore secondary fingers
+    
     setState(() {
       if (_currentTool == DrawTool.pen || _currentTool == DrawTool.eraser) {
         _currentPath.add(event.localPosition);
@@ -985,11 +1001,17 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   }
 
   void _onPointerUp(PointerUpEvent event) {
-    _currentPath = [];
+    if (event.pointer == _activePointerId) {
+      _activePointerId = null;
+      _currentPath = [];
+    }
   }
   
   void _onPointerCancel(PointerCancelEvent event) {
-    _currentPath = [];
+    if (event.pointer == _activePointerId) {
+      _activePointerId = null;
+      _currentPath = [];
+    }
   }
 
   void _addLayer() {
@@ -1029,7 +1051,10 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
           ),
           IconButton(
             icon: const Icon(Icons.zoom_out_map),
-            onPressed: () => _transformCtrl.value = Matrix4.identity()..translate(-500.0, -500.0),
+            onPressed: () {
+               final size = MediaQuery.of(context).size;
+               _transformCtrl.value = Matrix4.identity()..translate(-(3000 - size.width) / 2, -(3000 - size.height) / 2);
+            },
             tooltip: 'Reset View',
           ),
           IconButton(icon: const Icon(Icons.undo), onPressed: _undoStack.isNotEmpty ? _undo : null),
@@ -1081,6 +1106,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                   panEnabled: !_isDrawingMode,
                   scaleEnabled: !_isDrawingMode,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
+                  constrained: false, // CRITICAL FIX: Ensures 3000x3000 actually exists in virtual space and isn't shrunken
                   minScale: 0.1,
                   maxScale: 10.0,
                   child: Listener(
@@ -1088,7 +1114,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                     onPointerDown: _onPointerDown,
                     onPointerMove: _onPointerMove,
                     onPointerUp: _onPointerUp,
-                    onPointerCancel: _onPointerCancel, // Corrected Event
+                    onPointerCancel: _onPointerCancel, 
                     child: SizedBox(
                       width: 3000,
                       height: 3000,
@@ -1307,6 +1333,9 @@ class TestResultScreen extends StatelessWidget {
             IconData icon = isAttempted ? (isCorrect ? Icons.check_circle : Icons.cancel) : Icons.remove_circle;
             Color iconColor = isAttempted ? (isCorrect ? steamGreen : steamBlood) : steamDarkInk;
 
+            // Sanitize Result Screen strings too
+            String safeQText = q.text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(border: Border.all(color: steamDarkInk, width: 2), color: tileColor),
@@ -1324,7 +1353,7 @@ class TestResultScreen extends StatelessWidget {
                       children: [
                         TeXView(
                           renderingEngine: const TeXViewRenderingEngine.katex(),
-                          child: TeXViewDocument(q.text, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;')),
+                          child: TeXViewMarkdown(safeQText, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;')),
                         ),
                         const SizedBox(height: 16),
                         Container(
