@@ -43,7 +43,7 @@ final steamTheme = ThemeData(
   ),
   useMaterial3: true,
   fontFamily: 'Georgia',
-  cardTheme: const CardTheme(
+  cardTheme: const CardThemeData(
     color: steamParchment,
     elevation: 0,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
@@ -71,7 +71,7 @@ final steamTheme = ThemeData(
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
     ),
   ),
-  dialogTheme: const DialogTheme(
+  dialogTheme: const DialogThemeData(
     backgroundColor: steamParchment,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.zero,
@@ -624,7 +624,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
     String safeText = text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
     
     return TeXView(
-      renderingEngine: const TeXViewRenderingEngine.katex(),
       child: TeXViewMarkdown(
         safeText, 
         style: TeXViewStyle.fromCSS('color: $color; font-family: Georgia; font-weight: $weight; font-size: ${isOption ? '16px' : '20px'}; padding: 4px;')
@@ -1352,7 +1351,6 @@ class TestResultScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         TeXView(
-                          renderingEngine: const TeXViewRenderingEngine.katex(),
                           child: TeXViewMarkdown(safeQText, style: TeXViewStyle.fromCSS('color: #2B1C10; font-weight: bold;')),
                         ),
                         const SizedBox(height: 16),
