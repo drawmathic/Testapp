@@ -913,7 +913,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   int _activeLayerIndex = 0;
   DrawTool _currentTool = DrawTool.pen;
   double _currentWidth = 3.0;
-  bool _isDrawingMode = true; // Toggle between Draw and Move/Zoom
+  bool _isDrawingMode = true; 
 
   final TransformationController _transformCtrl = TransformationController();
 
@@ -930,10 +930,9 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
         _layers = (decoded as List).map((l) => DrawLayer.fromJson(l)).toList();
         if (_layers.isEmpty) _layers = [DrawLayer(name: 'Base Layer')];
       } catch (e) {
-        // Fallback to empty if corrupt
+        // Fallback
       }
     }
-    // Center the 3000x3000 infinite canvas on launch
     _transformCtrl.value = Matrix4.identity()..translate(-500.0, -500.0);
   }
 
@@ -986,6 +985,10 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
   }
 
   void _onPointerUp(PointerUpEvent event) {
+    _currentPath = [];
+  }
+  
+  void _onPointerCancel(PointerCancelEvent event) {
     _currentPath = [];
   }
 
@@ -1085,7 +1088,7 @@ class _ScratchpadOverlayState extends State<ScratchpadOverlay> {
                     onPointerDown: _onPointerDown,
                     onPointerMove: _onPointerMove,
                     onPointerUp: _onPointerUp,
-                    onPointerCancel: _onPointerUp,
+                    onPointerCancel: _onPointerCancel, // Corrected Event
                     child: SizedBox(
                       width: 3000,
                       height: 3000,
@@ -1220,7 +1223,6 @@ class ScratchpadPainter extends CustomPainter {
           paint.blendMode = BlendMode.clear;
         }
 
-        // Fix for "Multi-tap line bug": perfectly render a single tap dot.
         if (stroke.points.length == 1) {
           canvas.drawCircle(stroke.points.first, stroke.width / 2, paint..style = PaintingStyle.fill);
         } else if (stroke.tool == DrawTool.pen || stroke.tool == DrawTool.eraser) {
