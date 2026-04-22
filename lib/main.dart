@@ -474,7 +474,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: (_activeTest.remainingTimeMs < 300000) ? Colors.red.withOpacity(0.2) : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  color: (_activeTest.remainingTimeMs < 300000) ? Colors.red.withOpacity(0.2) : Theme.of(context).colorScheme.surfaceVariant,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -818,7 +818,7 @@ class _ResultPill extends StatelessWidget {
       children: [
         Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
         Container(
-          margin: const EdgeInsets.top: 4,
+          margin: const EdgeInsets.only(top: 4),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
           child: Text('$count', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18)),
@@ -1061,7 +1061,25 @@ class _ImportScreenState extends State<ImportScreen> {
                 expands: true,
                 textAlignVertical: TextAlignVertical.top,
                 decoration: const InputDecoration(
-                  hintText: 'Paste JSON array here...\n\nExample Format:\n[\n  {\n    "id": "1",\n    "title": "Mock Test 1",\n    "category": "Physics",\n    "subcategory": "Mechanics",\n    "allocatedTimeMs": 3600000,\n    "questions": [\n      {\n        "text": "What is Newton\\'s second law?",\n        "options": ["F=ma", "E=mc^2", "v=u+at", "W=Fs"],\n        "correctIndex": 0\n      }\n    ]\n  }\n]',
+                  hintText: '''Paste JSON array here...
+
+Example Format:
+[
+  {
+    "id": "1",
+    "title": "Mock Test 1",
+    "category": "Physics",
+    "subcategory": "Mechanics",
+    "allocatedTimeMs": 3600000,
+    "questions": [
+      {
+        "text": "What is Newton's second law?",
+        "options": ["F=ma", "E=mc^2", "v=u+at", "W=Fs"],
+        "correctIndex": 0
+      }
+    ]
+  }
+]''',
                   border: OutlineInputBorder(),
                 ),
               ),
